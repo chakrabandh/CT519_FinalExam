@@ -1,0 +1,78 @@
+services:
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"     # HTTP
+      - "443:443"   # HTTPS
+    command:
+      # Static configuration via CLI
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--api.dashboard=false"  # Disable dashboard for security
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=research-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=contact@bangupproduct.co.th"  # เปลี่ยนเป็น email ของคุณ
+      - "--certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/acme
+    networks:
+      - research-network
+
+  # Your Next.js Application
+  research-portfolio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: research-portfolio-app
+    expose:
+      - "3000"  # Changed from ports to expose (internal only)
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - ./data:/app/data
+      - ./public:/app/public
+    restart: unless-stopped
+    networks:
+      - research-network
+    labels:
+      # Enable Traefik
+      - "traefik.enable=true"
+      
+      # HTTP to HTTPS redirect
+      - "traefik.http.routers.research-http.rule=Host(`finalexam.meowcattery.co`)"
+      - "traefik.http.routers.research-http.entrypoints=web"
+      - "traefik.http.routers.research-http.middlewares=redirect-to-https"
+      
+      # HTTPS configuration
+      - "traefik.http.routers.research-https.rule=Host(`finalexam.meowcattery.co`)"
+      - "traefik.http.routers.research-https.entrypoints=websecure"
+      - "traefik.http.routers.research-https.tls=true"
+      - "traefik.http.routers.research-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.research-https.service=research-portfolio"
+      
+      # Service configuration
+      - "traefik.http.services.research-portfolio.loadbalancer.server.port=3000"
+      
+      # Redirect middleware
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+networks:
+  research-network:
+    driver: bridge
+
+volumes:
+  research_data:
+    driver: local
+  traefik_acme:
+    driver: local
